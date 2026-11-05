@@ -14,6 +14,7 @@
       --primary: #2f6fed;
       --primary-dark: #1f56c4;
       --border: #dde4ef;
+      --success: #27ae60;
       --error: #c0392b;
       --radius: 14px;
       --font: "Segoe UI", system-ui, -apple-system, Roboto, Arial, sans-serif;
@@ -28,6 +29,7 @@
         --primary: #5b8dff;
         --primary-dark: #7aa2ff;
         --border: #263349;
+        --success: #2ecc71;
         --error: #ff7b6b;
       }
     }
@@ -99,6 +101,11 @@
       font: inherit;
       font-weight: 600;
       cursor: pointer;
+      text-decoration: none;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      transition: background 0.2s;
     }
 
     button:hover,
@@ -116,6 +123,9 @@
       border: 1px solid var(--border);
       border-radius: var(--radius);
       padding: 20px;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
     }
 
     .card h2 {
@@ -171,36 +181,73 @@
     }
 
     /* ---- Open positions ---- */
-    .job {
+    .jobs-container {
       display: flex;
-      align-items: center;
-      justify-content: space-between;
+      flex-direction: column;
       gap: 12px;
-      padding: 14px 0;
-      border-top: 1px solid var(--border);
     }
 
-    .job:first-of-type {
+    .job-card {
+      padding: 14px 0;
+      border-top: 1px solid var(--border);
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+
+    .job-card:first-child {
       border-top: 0;
-      padding-top: 4px;
+      padding-top: 0;
+    }
+
+    .job-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 12px;
     }
 
     .job-title {
       font-weight: 600;
+      font-size: 1.1rem;
+      margin: 0;
     }
 
-    .job-dept {
+    .badge {
+      background: rgba(46, 204, 113, 0.15);
+      color: var(--success);
+      padding: 4px 10px;
+      border-radius: 20px;
+      font-size: 0.8rem;
+      font-weight: 600;
+      text-transform: uppercase;
+    }
+
+    .job-details {
       color: var(--muted);
       font-size: .92rem;
-      margin-top: 2px;
     }
 
-    .btn {
-      display: inline-flex;
-      align-items: center;
+    .job-actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      padding-top: 4px;
+    }
+
+    .job-actions .btn {
       padding: 10px 18px;
-      text-decoration: none;
-      white-space: nowrap;
+    }
+
+    .btn-secondary {
+      background: transparent;
+      color: var(--primary);
+      border: 1px solid var(--primary);
+    }
+
+    .btn-secondary:hover {
+      background: rgba(47, 111, 237, 0.08);
+      color: var(--primary-dark);
     }
 
     .muted {
@@ -242,16 +289,18 @@
 
     <section class="card" aria-labelledby="jobsHeading">
       <h2 id="jobsHeading">Open positions</h2>
-      <div id="jobs" class="muted" aria-live="polite">Loading open positions…</div>
+      <div id="jobs" class="jobs-container" aria-live="polite">
+        <div class="muted">Loading open positions…</div>
+      </div>
     </section>
   </div>
 
   <script>
-    // Put your n8n PRODUCTION webhook URL here (workflow must be Active)
-    const WEBHOOK_URL = "https://mo-9-9-1.app.n8n.cloud/webhook/rag";
+    // n8n PRODUCTION webhook for the chatbot (workflow must be Active)
+    const CHATBOT_WEBHOOK_URL = "https://mo-9-9-1.app.n8n.cloud/webhook/rag";
 
-    // Production URL of the Workflow C webhook (GET) that returns the open positions
-    const JOBS_URL = "https://mo-9-9-1.app.n8n.cloud/webhook/Jobs";
+    // n8n PRODUCTION webhook that returns the open positions (GET)
+    const JOBS_WEBHOOK_URL = "https://mo-9-9-1.app.n8n.cloud/webhook/Jobs";
 
     const $ = (id) => document.getElementById(id);
     const input = $("question"), sendBtn = $("send");
@@ -264,7 +313,7 @@
       $("result").hidden = true; $("error").hidden = true; $("loading").hidden = false;
 
       try {
-        const res = await fetch(WEBHOOK_URL, {
+        const res = await fetch(CHATBOT_WEBHOOK_URL, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ question })
@@ -272,7 +321,7 @@
         if (!res.ok) throw new Error("Server returned status " + res.status);
 
         let data = await res.json();
-        if (Array.isArray(data)) data = data[0];   // n8n sometimes wraps the reply in an array
+        if (Array.isArray(data)) data = data[0];
         if (!data || !data.answer) throw new Error("The reply did not contain an answer.");
 
         $("answer").textContent = data.answer;
@@ -301,57 +350,134 @@
       if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); ask(); }
     });
 
-    // ---- Open positions (fed by the n8n jobs webhook) ----
-    async function loadJobs() {
+    // ---------------- Open positions ----------------
+
+    // Lowercase and drop spaces, underscores and hyphens so "Job state ", "job_state" and "jobState" all match
+    function norm(s) {
+      return String(s).toLowerCase().replace(/[\s_\-]/g, "");
+    }
+
+    // Read a field by any of the accepted column names; returns "" when missing or empty
+    function field(row, names) {
+      const wanted = names.map(norm);
+      for (const key of Object.keys(row)) {
+        if (wanted.includes(norm(key))) {
+          const v = row[key];
+          if (v !== undefined && v !== null && String(v).trim() !== "") return String(v).trim();
+        }
+      }
+      return "";
+    }
+
+    // Turn whatever n8n sends back (array, single object, wrapped list) into a flat array of rows
+    function toRows(data) {
+      if (data === null || data === undefined) return [];
+      if (Array.isArray(data)) return data.flatMap(toRows);
+      if (typeof data === "object") {
+        for (const key of ["json", "data", "jobs", "items", "body"]) {
+          if (data[key] && typeof data[key] === "object") return toRows(data[key]);
+        }
+        return [data];
+      }
+      return [];
+    }
+
+    function makeButton(label, url, secondary) {
+      const a = document.createElement("a");
+      a.className = secondary ? "btn btn-secondary" : "btn";
+      a.href = url;
+      a.target = "_blank";
+      a.rel = "noopener";
+      a.textContent = label;
+      return a;
+    }
+
+    async function fetchJobs() {
       const box = $("jobs");
       try {
-        const res = await fetch(JOBS_URL);
-        if (!res.ok) throw new Error("status " + res.status);
+        const response = await fetch(JOBS_WEBHOOK_URL, { headers: { "Accept": "application/json" } });
+        if (!response.ok) throw new Error("Status " + response.status);
 
-        let data = await res.json();
-        if (!Array.isArray(data)) data = [data];
-        const jobs = data.filter((j) => j && j["Job title"]);   // ignore empty rows
+        const raw = await response.json();
+        console.log("Jobs webhook response:", raw);
+
+        const jobs = toRows(raw).filter((row) => {
+          if (!field(row, ["job title", "title"])) return false;            // no title -> skip
+          const status = field(row, ["job state", "status", "state"]);
+          return !status || status.toLowerCase() === "open";                // only open jobs
+        });
+        console.log("Jobs shown:", jobs);
 
         box.textContent = "";
         if (!jobs.length) {
-          box.textContent = "No open positions right now.";
+          const empty = document.createElement("div");
+          empty.className = "muted";
+          empty.textContent = "No open positions right now.";
+          box.appendChild(empty);
           return;
         }
-        box.classList.remove("muted");
 
-        jobs.forEach((j) => {
-          const row = document.createElement("div");
-          row.className = "job";
+        jobs.forEach((row) => {
+          const card = document.createElement("div");
+          card.className = "job-card";
 
-          const info = document.createElement("div");
-          const title = document.createElement("div");
+          const header = document.createElement("div");
+          header.className = "job-header";
+          const title = document.createElement("h3");
           title.className = "job-title";
-          title.textContent = j["Job title"];
-          const dept = document.createElement("div");
-          dept.className = "job-dept";
-          dept.textContent = j["Department"] || "";
-          info.append(title, dept);
-          row.appendChild(info);
+          title.textContent = field(row, ["job title", "title"]);
+          header.appendChild(title);
 
-          const link = String(j["Referral link"] || "");
-          if (link.startsWith("https://")) {
-            const a = document.createElement("a");
-            a.className = "btn";
-            a.href = link;
-            a.target = "_blank";
-            a.rel = "noopener";
-            a.textContent = "Refer a Candidate";
-            row.appendChild(a);
+          const status = field(row, ["job state", "status", "state"]);
+          if (status) {
+            const badge = document.createElement("span");
+            badge.className = "badge";
+            badge.textContent = status;
+            header.appendChild(badge);
           }
-          box.appendChild(row);
+          card.appendChild(header);
+
+          const details = document.createElement("div");
+          details.className = "job-details";
+          const id = field(row, ["id", "job id"]);
+          const dept = field(row, ["department"]);
+          if (id) {
+            const line = document.createElement("div");
+            const label = document.createElement("strong");
+            label.textContent = "Job ID: ";
+            line.append(label, document.createTextNode(id));
+            details.appendChild(line);
+          }
+          if (dept) {
+            const line = document.createElement("div");
+            const label = document.createElement("strong");
+            label.textContent = "Department: ";
+            line.append(label, document.createTextNode(dept));
+            details.appendChild(line);
+          }
+          if (details.childNodes.length) card.appendChild(details);
+
+          const actions = document.createElement("div");
+          actions.className = "job-actions";
+          const applyUrl = field(row, ["apply_link_job_app", "apply link"]);
+          const referUrl = field(row, ["apply_link_referral", "referral link"]);
+          if (applyUrl.startsWith("https://")) actions.appendChild(makeButton("Apply Now", applyUrl, false));
+          if (referUrl.startsWith("https://")) actions.appendChild(makeButton("Refer a Candidate", referUrl, true));
+          if (actions.childNodes.length) card.appendChild(actions);
+
+          box.appendChild(card);
         });
       } catch (err) {
-        box.textContent = "Could not load open positions. Check that the jobs workflow is active and try again.";
-        box.classList.add("error");
-        console.error(err);
+        console.error("Could not load open positions:", err);
+        box.textContent = "";
+        const msg = document.createElement("div");
+        msg.className = "error";
+        msg.textContent = "Could not load open positions. Check that the workflow is active.";
+        box.appendChild(msg);
       }
     }
-    loadJobs();
+
+    document.addEventListener("DOMContentLoaded", fetchJobs);
   </script>
 </body>
 

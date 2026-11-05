@@ -1,0 +1,358 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>HR Chatbot</title>
+  <style>
+    :root {
+      --bg: #f3f6fb;
+      --surface: #ffffff;
+      --text: #1c2433;
+      --muted: #5d6b82;
+      --primary: #2f6fed;
+      --primary-dark: #1f56c4;
+      --border: #dde4ef;
+      --error: #c0392b;
+      --radius: 14px;
+      --font: "Segoe UI", system-ui, -apple-system, Roboto, Arial, sans-serif;
+    }
+
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --bg: #0f1520;
+        --surface: #182130;
+        --text: #e8edf6;
+        --muted: #9aa8bf;
+        --primary: #5b8dff;
+        --primary-dark: #7aa2ff;
+        --border: #263349;
+        --error: #ff7b6b;
+      }
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      min-height: 100vh;
+      background: var(--bg);
+      color: var(--text);
+      font-family: var(--font);
+      display: flex;
+      justify-content: center;
+      padding: 32px 16px;
+    }
+
+    .app {
+      width: 100%;
+      max-width: 720px;
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+    }
+
+    h1 {
+      margin: 0;
+      font-size: 1.7rem;
+    }
+
+    .sub {
+      margin: 4px 0 0;
+      color: var(--muted);
+    }
+
+    .ask {
+      display: flex;
+      gap: 10px;
+    }
+
+    textarea {
+      flex: 1;
+      resize: vertical;
+      min-height: 52px;
+      padding: 12px 14px;
+      font: inherit;
+      color: var(--text);
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+    }
+
+    textarea:focus-visible,
+    button:focus-visible,
+    .btn:focus-visible {
+      outline: 3px solid var(--primary);
+      outline-offset: 2px;
+    }
+
+    button,
+    .btn {
+      background: var(--primary);
+      color: #fff;
+      border: 0;
+      border-radius: 10px;
+      padding: 0 22px;
+      font: inherit;
+      font-weight: 600;
+      cursor: pointer;
+    }
+
+    button:hover,
+    .btn:hover {
+      background: var(--primary-dark);
+    }
+
+    button:disabled {
+      opacity: .6;
+      cursor: not-allowed;
+    }
+
+    .card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 20px;
+    }
+
+    .card h2 {
+      margin: 0 0 8px;
+      font-size: 1rem;
+      color: var(--muted);
+      font-weight: 600;
+    }
+
+    .answer {
+      white-space: pre-wrap;
+      line-height: 1.6;
+    }
+
+    .sources ul {
+      margin: 0;
+      padding-left: 20px;
+      color: var(--muted);
+      font-size: .92rem;
+      line-height: 1.5;
+    }
+
+    .loading {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      color: var(--muted);
+    }
+
+    .spinner {
+      width: 18px;
+      height: 18px;
+      border: 3px solid var(--border);
+      border-top-color: var(--primary);
+      border-radius: 50%;
+      animation: spin .8s linear infinite;
+    }
+
+    @keyframes spin {
+      to {
+        transform: rotate(360deg);
+      }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      .spinner {
+        animation-duration: 3s;
+      }
+    }
+
+    .error {
+      color: var(--error);
+    }
+
+    /* ---- Open positions ---- */
+    .job {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      padding: 14px 0;
+      border-top: 1px solid var(--border);
+    }
+
+    .job:first-of-type {
+      border-top: 0;
+      padding-top: 4px;
+    }
+
+    .job-title {
+      font-weight: 600;
+    }
+
+    .job-dept {
+      color: var(--muted);
+      font-size: .92rem;
+      margin-top: 2px;
+    }
+
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      padding: 10px 18px;
+      text-decoration: none;
+      white-space: nowrap;
+    }
+
+    .muted {
+      color: var(--muted);
+    }
+
+    [hidden] {
+      display: none !important;
+    }
+  </style>
+</head>
+
+<body>
+  <div class="app">
+    <header>
+      <h1>HR Chatbot</h1>
+      <p class="sub">Ask a question about BrightPath company policies.</p>
+    </header>
+
+    <div class="ask">
+      <textarea id="question" rows="2" placeholder="For example: What are the core hours?"></textarea>
+      <button id="send">Ask</button>
+    </div>
+
+    <section id="loading" class="card loading" hidden>
+      <div class="spinner"></div><span>Thinking…</span>
+    </section>
+
+    <section id="error" class="card error" hidden></section>
+
+    <section id="result" class="card" hidden>
+      <h2>Answer</h2>
+      <div id="answer" class="answer"></div>
+      <div class="sources" id="sourcesBox" hidden style="margin-top:16px">
+        <h2>Sources</h2>
+        <ul id="sources"></ul>
+      </div>
+    </section>
+
+    <section class="card" aria-labelledby="jobsHeading">
+      <h2 id="jobsHeading">Open positions</h2>
+      <div id="jobs" class="muted" aria-live="polite">Loading open positions…</div>
+    </section>
+  </div>
+
+  <script>
+    // Put your n8n PRODUCTION webhook URL here (workflow must be Active)
+    const WEBHOOK_URL = "https://mo-9-9-1.app.n8n.cloud/webhook/rag";
+
+    // Production URL of the Workflow C webhook (GET) that returns the open positions
+    const JOBS_URL = "https://mo-9-9-1.app.n8n.cloud/webhook/jobs";
+
+    const $ = (id) => document.getElementById(id);
+    const input = $("question"), sendBtn = $("send");
+
+    async function ask() {
+      const question = input.value.trim();
+      if (!question) { input.focus(); return; }
+
+      sendBtn.disabled = true;
+      $("result").hidden = true; $("error").hidden = true; $("loading").hidden = false;
+
+      try {
+        const res = await fetch(WEBHOOK_URL, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ question })
+        });
+        if (!res.ok) throw new Error("Server returned status " + res.status);
+
+        let data = await res.json();
+        if (Array.isArray(data)) data = data[0];   // n8n sometimes wraps the reply in an array
+        if (!data || !data.answer) throw new Error("The reply did not contain an answer.");
+
+        $("answer").textContent = data.answer;
+
+        const list = $("sources"); list.innerHTML = "";
+        const sources = Array.isArray(data.sources) ? data.sources : (data.sources ? [data.sources] : []);
+        sources.forEach((s) => {
+          const li = document.createElement("li");
+          li.textContent = typeof s === "string" ? s : JSON.stringify(s);
+          list.appendChild(li);
+        });
+        $("sourcesBox").hidden = sources.length === 0;
+        $("result").hidden = false;
+      } catch (err) {
+        $("error").textContent = "Could not get an answer. " + err.message +
+          " Check that the workflow is active and try again.";
+        $("error").hidden = false;
+      } finally {
+        $("loading").hidden = true;
+        sendBtn.disabled = false;
+      }
+    }
+
+    sendBtn.addEventListener("click", ask);
+    input.addEventListener("keydown", (e) => {
+      if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); ask(); }
+    });
+
+    // ---- Open positions (fed by the n8n jobs webhook) ----
+    async function loadJobs() {
+      const box = $("jobs");
+      try {
+        const res = await fetch(JOBS_URL);
+        if (!res.ok) throw new Error("status " + res.status);
+
+        let data = await res.json();
+        if (!Array.isArray(data)) data = [data];
+        const jobs = data.filter((j) => j && j["Job title"]);   // ignore empty rows
+
+        box.textContent = "";
+        if (!jobs.length) {
+          box.textContent = "No open positions right now.";
+          return;
+        }
+        box.classList.remove("muted");
+
+        jobs.forEach((j) => {
+          const row = document.createElement("div");
+          row.className = "job";
+
+          const info = document.createElement("div");
+          const title = document.createElement("div");
+          title.className = "job-title";
+          title.textContent = j["Job title"];
+          const dept = document.createElement("div");
+          dept.className = "job-dept";
+          dept.textContent = j["Department"] || "";
+          info.append(title, dept);
+          row.appendChild(info);
+
+          const link = String(j["Referral link"] || "");
+          if (link.startsWith("https://")) {
+            const a = document.createElement("a");
+            a.className = "btn";
+            a.href = link;
+            a.target = "_blank";
+            a.rel = "noopener";
+            a.textContent = "Refer a Candidate";
+            row.appendChild(a);
+          }
+          box.appendChild(row);
+        });
+      } catch (err) {
+        box.textContent = "Could not load open positions. Check that the jobs workflow is active and try again.";
+        box.classList.add("error");
+        console.error(err);
+      }
+    }
+    loadJobs();
+  </script>
+</body>
+
+</html>

@@ -15,6 +15,8 @@ The employee portal lists the open positions automatically, so nothing has to be
 An HR chatbot answers company policy questions using RAG (Qdrant vector search).
 Screenshots
 Opening a position
+this is the google form try by yourself but the n8n only lasts for 14 days
+https://docs.google.com/forms/d/e/1FAIpQLSdOtriF8apl4l1z41X17tD6Qyr0FYUxB93X6ithYryf2BE6YQ/viewform
 
 Workflow A: position management
 
